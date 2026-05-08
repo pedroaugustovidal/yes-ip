@@ -9,9 +9,7 @@ Fly.io applications backed by a managed Neon Postgres database.
 - The `flyctl` CLI installed and authenticated: `flyctl auth login`
 - A Neon project: <https://console.neon.tech>
 - A Cloudflare account with the target domain on Cloudflare nameservers
-- A new Cloudflare API token with `Zone.DNS:Edit` on the target zone (the
-  one previously placed in `.env.example` was rotated for safety; generate a
-  fresh one)
+- A Cloudflare API token with `Zone.DNS:Edit` scoped to the target zone
 
 The API and web apps live in:
 
@@ -107,38 +105,91 @@ The web app is configured with `auto_stop_machines = "stop"` and
 the first request, which keeps it within the free tier when the panel is
 unused.
 
-## 5. Wire your domain (optional)
+## 5. Wire your domain
 
-If you want custom domains in front of `*.fly.dev`:
+### 5.1 Why you almost certainly want `dynupdate.<yourdomain>`
+
+The original No-IP service is reached at `dynupdate.no-ip.com/nic/update`,
+and a large fraction of router and modem firmwares **hardcode that
+hostname template into the UI**. Two flavours are common:
+
+- The "Server" field is a plain text input you can fully replace. These
+  routers (DD-WRT, OpenWrt, ASUSWRT-Merlin, recent TP-Link, MikroTik)
+  accept any hostname — you can use `api.yourdomain.tld` or even the
+  bare `yesip-api.fly.dev`.
+- The "Server" field is a dropdown or split input where the `dynupdate.`
+  prefix is fixed and only the second-level domain is editable.
+  Many ISP-supplied modems (Vivo, Claro, Oi, several Huawei/ZTE OEM
+  builds, older Intelbras/Tenda) and a handful of small-business
+  firewalls fall into this bucket. The only string they will let you
+  type is the apex (`yourdomain.tld`), which the firmware then concats
+  with the literal `dynupdate.` prefix and the literal `/nic/update`
+  path.
+
+To make a single deployment work for **both** firmware classes, expose
+the API at `dynupdate.<yourdomain>` from day one. Routers in the first
+group can still use that hostname (it is just a normal A/CNAME), and
+routers in the second group are forced to.
+
+### 5.2 Add the certificate and DNS
 
 ```bash
-# API
-flyctl certs add api.yourdomain.tld --app yesip-api
+# DDNS endpoint that all routers can reach
+flyctl certs add dynupdate.yourdomain.tld --app yesip-api
 
-# Panel
+# Web panel
 flyctl certs add panel.yourdomain.tld --app yesip-web
 ```
 
-Then add the displayed CNAME records in Cloudflare. After certs go green
-update `BETTER_AUTH_URL` to `https://panel.yourdomain.tld` and redeploy
-the web app so cookies bind to the right host.
+In Cloudflare, add the records `flyctl certs show ...` prints. For the
+panel a normal `CNAME` to `yesip-web.fly.dev` is enough; for the DDNS
+endpoint the choice matters:
+
+| Record               | Proxy status | When to choose                                         |
+|----------------------|--------------|--------------------------------------------------------|
+| `CNAME dynupdate`    | DNS only 🟫  | All routers speak modern TLS (1.2+) and you want the real client IP at the application layer. |
+| `CNAME dynupdate`    | Proxied 🟧   | You have any router that still negotiates TLS 1.0/1.1 (common on 5+ year-old modems). Cloudflare terminates the legacy handshake and re-encrypts to Fly with TLS 1.3. You also get free WAF and edge rate-limit. |
+
+Proxied is the safer default for a public DDNS endpoint. The API already
+runs with `TRUST_PROXY=true`, so Fastify reads `Cf-Connecting-IP` /
+`X-Forwarded-For` and the rate limiter still keys on the real client IP.
+
+Wait until `flyctl certs show dynupdate.yourdomain.tld --app yesip-api`
+reports `Configured = true` and `Certificate Authority = Let's Encrypt`.
+Then update `BETTER_AUTH_URL` to `https://panel.yourdomain.tld` and
+redeploy the web app so cookies bind to the right host.
+
+### 5.3 Validate the endpoint
+
+```bash
+curl -A "test/1.0" \
+  -u "you@example.com:yip_<token from the panel>" \
+  "https://dynupdate.yourdomain.tld/nic/update?hostname=home.yourdomain.tld&myip=1.2.3.4"
+# expected: good 1.2.3.4
+```
 
 ## 6. Configure your router
 
-Use the No-IP-compatible DDNS form on your router with:
+Use the No-IP-compatible DDNS form on your router. Pick the column that
+matches your firmware:
 
-- **Service**: No-IP (or "Custom"/"Other" with the URL pattern below)
-- **Server**: `yesip-api.fly.dev` (or your custom API hostname)
-- **Username**: your account email
-- **Password**: an API token from `/dashboard/tokens` (recommended) or your
-  account password
-- **Hostname**: a hostname under your `CLOUDFLARE_BASE_DOMAIN`
-- **Update URL** (for routers that expect a full URL):
-  `https://yesip-api.fly.dev/nic/update?hostname=<host>&myip=<ip>`
+| Field                     | Modern firmware (free-form server)            | Restricted firmware (only second-level editable) |
+|---------------------------|-----------------------------------------------|--------------------------------------------------|
+| **Service**               | No-IP (or "Custom"/"Other")                   | No-IP                                            |
+| **Server**                | `dynupdate.yourdomain.tld`                    | `yourdomain.tld` *(firmware prepends `dynupdate.` automatically)* |
+| **Username**              | your account email                            | your account email                               |
+| **Password**              | API token from `/dashboard/tokens`            | API token from `/dashboard/tokens`               |
+| **Hostname**              | a hostname under your `CLOUDFLARE_BASE_DOMAIN` | same                                            |
 
-The API responds in plain text with the standard No-IP result codes
-(`good <ip>`, `nochg <ip>`, `nohost`, `badauth`, `badagent`, `abuse`,
-`911`).
+For routers that expose a full URL template instead of separate fields:
+
+```
+https://dynupdate.yourdomain.tld/nic/update?hostname=<host>&myip=<ip>
+```
+
+The API responds in plain text with the standard No-IP result codes —
+`good <ip>`, `nochg <ip>`, `nohost`, `badauth`, `badagent`, `abuse`,
+`911` — and always returns HTTP 200, the contract the firmware expects.
 
 ## 7. Operational notes
 
