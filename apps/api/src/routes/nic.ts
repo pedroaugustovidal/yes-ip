@@ -5,6 +5,7 @@ import { parseBasicAuth, verifyPassword } from '../lib/auth.js';
 import { resolveClientIp } from '../lib/ip-detect.js';
 import { formatNicResponse, type NicResponse } from '../lib/responses.js';
 import { checkHostLimit } from '../lib/host-rate-limit.js';
+import { pushDnsRecord, isHostUnderBase } from '../lib/dns-sync.js';
 
 const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 
@@ -88,9 +89,39 @@ export async function nicRoutes(app: FastifyInstance) {
       return send(reply, { code: 'nochg', ip: newIp }, req, host.id, hostnameRaw);
     }
 
+    let cfRecordId: string | null = host.cloudflareRecordId;
+    if (app.cf) {
+      if (!isHostUnderBase(hostnameRaw, app.cfBaseDomain)) {
+        app.log.warn(
+          { hostname: hostnameRaw, base: app.cfBaseDomain },
+          'host not under cloudflare base domain',
+        );
+        return send(reply, { code: 'nohost' }, req, host.id, hostnameRaw);
+      }
+      try {
+        const result = await pushDnsRecord(app.cf, {
+          hostname: hostnameRaw,
+          type: host.type,
+          ip: newIp,
+          ttl: host.ttl,
+          proxied: app.cfProxied,
+          existingRecordId: host.cloudflareRecordId,
+        });
+        cfRecordId = result.recordId;
+      } catch (err) {
+        app.log.error({ err, hostname: hostnameRaw }, 'cloudflare DNS push failed');
+        return send(reply, { code: '911' }, req, host.id, hostnameRaw);
+      }
+    }
+
     await app.db
       .update(schema.hosts)
-      .set({ currentIp: newIp, lastUpdate: new Date(), updatedAt: new Date() })
+      .set({
+        currentIp: newIp,
+        cloudflareRecordId: cfRecordId,
+        lastUpdate: new Date(),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.hosts.id, host.id));
 
     return send(reply, { code: 'good', ip: newIp }, req, host.id, hostnameRaw);
