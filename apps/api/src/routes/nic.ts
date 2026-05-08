@@ -4,6 +4,7 @@ import { schema } from '@yesip/db';
 import { parseBasicAuth, verifyPassword } from '../lib/auth.js';
 import { resolveClientIp } from '../lib/ip-detect.js';
 import { formatNicResponse, type NicResponse } from '../lib/responses.js';
+import { checkHostLimit } from '../lib/host-rate-limit.js';
 
 const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 
@@ -19,6 +20,15 @@ export async function nicRoutes(app: FastifyInstance) {
     const userAgent = req.headers['user-agent'];
     if (!userAgent || userAgent.length < 3) {
       return send(reply, { code: 'badagent' }, req, null, null);
+    }
+
+    const ipCheck = app.rateLimiter.check(req.ip);
+    if (ipCheck !== 'ok') {
+      if (ipCheck === 'just_banned') {
+        const until = Date.now() + 60 * 60_000;
+        void app.persistBan(req.ip, 'ip rate limit exceeded', until);
+      }
+      return send(reply, { code: 'abuse' }, req, null, null);
     }
 
     const creds = parseBasicAuth(req.headers.authorization);
@@ -57,6 +67,11 @@ export async function nicRoutes(app: FastifyInstance) {
 
     if (!host) {
       return send(reply, { code: 'nohost' }, req, null, hostnameRaw);
+    }
+
+    const hostLimit = await checkHostLimit(app.db, host.id);
+    if (!hostLimit.allowed) {
+      return send(reply, { code: 'abuse' }, req, host.id, hostnameRaw);
     }
 
     const newIp = resolveClientIp({
