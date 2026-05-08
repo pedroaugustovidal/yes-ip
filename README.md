@@ -91,7 +91,7 @@ good 1.2.3.4
 
 ## Production deployment
 
-[`DEPLOY.md`](./DEPLOY.md).
+[`DEPLOY.md`](./DEPLOY.md)
 
 Two Fly.io applications backed by a managed Neon Postgres database:
 
