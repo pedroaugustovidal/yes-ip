@@ -1,0 +1,16 @@
+node_modules
+dist
+.next
+.turbo
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea
+.vscode
+coverage
+postgres-data
+tsconfig.tsbuildinfo
