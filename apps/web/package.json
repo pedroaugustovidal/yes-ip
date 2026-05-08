@@ -14,6 +14,7 @@
     "@yesip/db": "workspace:*",
     "better-auth": "^1.1.13",
     "bcryptjs": "^2.4.3",
+    "drizzle-orm": "^0.45.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
