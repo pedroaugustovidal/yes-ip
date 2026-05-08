@@ -3,22 +3,41 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { requireSession } from '@/lib/session';
 import { getHostByIdAndUser } from '@/lib/hosts';
+import { isResultCode, listHostLogs } from '@/lib/update-logs';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DeleteHostButton } from '@/components/hosts/delete-host-button';
+import { UpdateLogsFilters } from '@/components/hosts/update-logs-filters';
+import { UpdateLogsTable } from '@/components/hosts/update-logs-table';
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function HostDetailPage({ params }: PageProps) {
+export default async function HostDetailPage({ params, searchParams }: PageProps) {
   const session = await requireSession();
   const { id } = await params;
+  const sp = await searchParams;
   const host = await getHostByIdAndUser(id, session.user.id);
   if (!host) notFound();
 
+  const resultParam = typeof sp.result === 'string' ? sp.result : null;
+  const pageParam = typeof sp.page === 'string' ? Number(sp.page) : 1;
+  const result = isResultCode(resultParam) ? resultParam : null;
+
+  const logs = await listHostLogs({
+    hostId: host.id,
+    result,
+    page: Number.isFinite(pageParam) ? pageParam : 1,
+  });
+
+  const basePath = `/dashboard/hosts/${host.id}`;
+  const usp = new URLSearchParams();
+  if (result) usp.set('result', result);
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <Link
         href="/dashboard"
         className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
@@ -67,6 +86,16 @@ export default async function HostDetailPage({ params }: PageProps) {
               <dd>{host.createdAt.toISOString()}</dd>
             </div>
           </dl>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle>Update history</CardTitle>
+          <UpdateLogsFilters basePath={basePath} />
+        </CardHeader>
+        <CardContent className="p-0">
+          <UpdateLogsTable data={logs} basePath={basePath} searchParams={usp} />
         </CardContent>
       </Card>
     </div>
