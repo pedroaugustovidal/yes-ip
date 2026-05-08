@@ -91,6 +91,8 @@ good 1.2.3.4
 
 ## Production deployment
 
+[`DEPLOY.md`](./DEPLOY.md).
+
 Two Fly.io applications backed by a managed Neon Postgres database:
 
 ```
@@ -100,8 +102,8 @@ apps/web  →  Fly app: yesip-web    (autostop, 512 MB)
 
 The full walkthrough — Neon provisioning, Fly secret configuration,
 custom-domain wiring (including the `dynupdate.<yourdomain>` subdomain
-that restricted firmwares require), and router setup — lives in
-[`DEPLOY.md`](./DEPLOY.md).
+that restricted firmwares require), and router setup — lives in DEPLOY.md.
+
 
 ## Repository layout
 
