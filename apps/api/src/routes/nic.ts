@@ -6,6 +6,7 @@ import { resolveClientIp } from '../lib/ip-detect.js';
 import { formatNicResponse, type NicResponse } from '../lib/responses.js';
 import { checkHostLimit } from '../lib/host-rate-limit.js';
 import { pushDnsRecord, isHostUnderBase } from '../lib/dns-sync.js';
+import { isApiTokenValue, verifyApiToken } from '../lib/api-token-auth.js';
 
 const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 
@@ -43,37 +44,46 @@ export async function nicRoutes(app: FastifyInstance) {
       return send(reply, { code: 'nohost' }, req, null, hostnameRaw ?? '');
     }
 
-    const userRows = await app.db
-      .select({
-        id: schema.users.id,
-        status: schema.users.status,
-        password: schema.accounts.password,
-      })
-      .from(schema.users)
-      .leftJoin(
-        schema.accounts,
-        and(
-          eq(schema.accounts.userId, schema.users.id),
-          eq(schema.accounts.providerId, 'credential'),
-        ),
-      )
-      .where(sql`lower(${schema.users.email}) = ${creds.username.toLowerCase()}`)
-      .limit(1);
-    const user = userRows[0];
+    let userId: string | null = null;
 
-    if (!user || user.status !== 'active' || !user.password) {
-      return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
-    }
-
-    const passwordOk = await verifyPassword(creds.password, user.password);
-    if (!passwordOk) {
-      return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
+    if (isApiTokenValue(creds.password)) {
+      const tokenResult = await verifyApiToken(app.db, creds.username, creds.password);
+      if (!tokenResult) {
+        return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
+      }
+      userId = tokenResult.userId;
+    } else {
+      const userRows = await app.db
+        .select({
+          id: schema.users.id,
+          status: schema.users.status,
+          password: schema.accounts.password,
+        })
+        .from(schema.users)
+        .leftJoin(
+          schema.accounts,
+          and(
+            eq(schema.accounts.userId, schema.users.id),
+            eq(schema.accounts.providerId, 'credential'),
+          ),
+        )
+        .where(sql`lower(${schema.users.email}) = ${creds.username.toLowerCase()}`)
+        .limit(1);
+      const user = userRows[0];
+      if (!user || user.status !== 'active' || !user.password) {
+        return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
+      }
+      const passwordOk = await verifyPassword(creds.password, user.password);
+      if (!passwordOk) {
+        return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
+      }
+      userId = user.id;
     }
 
     const hostRows = await app.db
       .select()
       .from(schema.hosts)
-      .where(and(eq(schema.hosts.hostname, hostnameRaw), eq(schema.hosts.userId, user.id)))
+      .where(and(eq(schema.hosts.hostname, hostnameRaw), eq(schema.hosts.userId, userId)))
       .limit(1);
     const host = hostRows[0];
 
