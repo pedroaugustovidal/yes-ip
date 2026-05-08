@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import dbPlugin from './plugins/db.js';
 import { healthRoutes } from './routes/health.js';
+import { nicRoutes } from './routes/nic.js';
 import type { Env } from './env.js';
 
 export async function buildServer(env: Env) {
@@ -19,6 +20,7 @@ export async function buildServer(env: Env) {
 
   await app.register(dbPlugin, { url: env.DATABASE_URL, ssl: env.DATABASE_SSL });
   await app.register(healthRoutes);
+  await app.register(nicRoutes);
 
   return app;
 }
