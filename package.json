@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "DDNS service compatible with No-IP protocol",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "packageManager": "pnpm@11.0.8",
   "engines": {
     "node": ">=22"
