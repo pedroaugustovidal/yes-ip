@@ -44,17 +44,28 @@ export async function nicRoutes(app: FastifyInstance) {
     }
 
     const userRows = await app.db
-      .select()
+      .select({
+        id: schema.users.id,
+        status: schema.users.status,
+        password: schema.accounts.password,
+      })
       .from(schema.users)
+      .leftJoin(
+        schema.accounts,
+        and(
+          eq(schema.accounts.userId, schema.users.id),
+          eq(schema.accounts.providerId, 'credential'),
+        ),
+      )
       .where(sql`lower(${schema.users.email}) = ${creds.username.toLowerCase()}`)
       .limit(1);
     const user = userRows[0];
 
-    if (!user || user.status !== 'active') {
+    if (!user || user.status !== 'active' || !user.password) {
       return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
     }
 
-    const passwordOk = await verifyPassword(creds.password, user.passwordHash);
+    const passwordOk = await verifyPassword(creds.password, user.password);
     if (!passwordOk) {
       return send(reply, { code: 'badauth' }, req, null, hostnameRaw);
     }

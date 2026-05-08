@@ -14,7 +14,7 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   if (!url.startsWith('https://api.cloudflare.com')) {
-    return originalFetch(input as RequestInfo, init);
+    return originalFetch(input, init);
   }
   const method = init?.method ?? 'GET';
   const body = init?.body ? JSON.parse(String(init.body)) : null;
@@ -62,10 +62,21 @@ const { buildServer } = await import('../server.js');
 const db = createDb({ url: process.env['DATABASE_URL']!, ssl: false });
 await db.delete(schema.updateLogs);
 await db.delete(schema.hosts);
+await db.delete(schema.accounts);
+await db.delete(schema.sessions);
 await db.delete(schema.users);
 const hash = await bcrypt.hash('test_password_123', 10);
-const [user] = await db.insert(schema.users).values({ email: 'alice@test.local', passwordHash: hash }).returning();
+const [user] = await db
+  .insert(schema.users)
+  .values({ email: 'alice@test.local', name: 'alice', emailVerified: true })
+  .returning();
 if (!user) throw new Error('seed failed');
+await db.insert(schema.accounts).values({
+  userId: user.id,
+  accountId: 'alice@test.local',
+  providerId: 'credential',
+  password: hash,
+});
 await db.insert(schema.hosts).values({ userId: user.id, hostname: 'home.test.local', type: 'A' });
 
 const env = loadEnv();
