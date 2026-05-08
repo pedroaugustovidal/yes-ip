@@ -28,7 +28,10 @@ export function DashboardNav({ userEmail, userName }: Props) {
           </Link>
           <nav className="flex gap-4 text-sm text-muted-foreground">
             <Link href="/dashboard" className="hover:text-foreground">
-              Overview
+              Hosts
+            </Link>
+            <Link href="/dashboard/tokens" className="hover:text-foreground">
+              Tokens
             </Link>
           </nav>
         </div>
